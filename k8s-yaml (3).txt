@@ -1,0 +1,268 @@
+Deployment.yaml 
+
+--- 
+apiVersion: apps/v1
+kind: Deployment
+metadata: 
+  labels: 
+      app: tomcat
+  name: tomcat-deployment
+spec: 
+  replicas: 3
+  selector: 
+    matchLabels: 
+      app: tomcat
+  template: 
+    metadata: 
+      labels: 
+        app: tomcat
+    spec: 
+      containers: 
+        - image: anilpu3/cicd-build-docker-repo:1.0
+          name: tomcat
+		  
+
+External-service.yaml
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: tomcat-external
+spec:
+  selector:
+    app: tomcat
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 8080
+  externalIPs:
+    - 172.31.26.232
+	
+	
+Load-service.yaml
+
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: tomcat-load
+spec:
+  selector:
+    app: tomcat
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 30005
+  type: LoadBalancer
+  
+  
+service.yaml
+
+ 
+apiVersion: v1
+kind: Service
+metadata:
+  name: tomcat-nodeport
+spec:
+  type: NodePort
+  selector:
+    app: tomcat
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+      nodePort: 30005
+	  
+Deployment file( Persistent volume claim)
+
+--- 
+apiVersion: apps/v1
+kind: Deployment
+metadata: 
+  labels: 
+      app: jenkins
+  name: jenkins-deployment
+spec: 
+  replicas: 3
+  selector: 
+    matchLabels: 
+      app: jenkins
+  template: 
+    metadata: 
+      labels: 
+        app: jenkins
+    spec: 
+      containers: 
+        - image: jenkins/jenkins:lts
+          name: jenkins
+          volumeMounts:
+            - mountPath: "/var/jenkins_home"
+              name: jenkins-volume
+          securityContext:
+            runAsUser: 0
+      nodeSelector:
+        environment: qa
+      volumes:
+        - name: jenkins-volume
+          persistentVolumeClaim:
+            claimName: jenkins-home-claim
+			
+			
+Folder : jenkins-ebs (ugo permission 777)
+per-claim.yaml
+
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: jenkins-home-claim
+  annotations:
+    volume.beta.kubernetes.io/storage-class: "aws-ebs-gp2"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+	  
+	  
+storage-class.yaml
+
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: aws-ebs-gp2
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  encrypted: "true"
+  
+tomcat-pvc.yaml
+
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: tomcat-home-claim
+  annotations:
+    volume.beta.kubernetes.io/storage-class: "aws-ebs-gp2"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+	  
+	  
+jenkins-pvc.yaml
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jenkins-volume-claim
+  labels:
+    type: aws-ebs-volume
+spec:
+  storageClassName: ""      
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi                                                                                                                         
+  volumeName: jenkins-root-volume
+  
+ 
+ Persistent volume
+ 
+ apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: jenkins-root-volume
+  labels:
+    type: aws-ebs-volume
+spec:
+  storageClassName: ""
+  capacity:
+    storage: 20Gi
+  accessModes:
+    - ReadWriteMany
+  awsElasticBlockStore:                                                                                                                            
+    volumeID: vol-0e9af4b2d9dce4de4
+    fsType: ext4
+	
+	
+pvc.yaml
+
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: myclaim
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: slow 
+  resources:
+    requests:
+      storage: 6Gi
+	  
+storage class.yaml
+
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: slow
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: gp3
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+mountOptions:
+  - debug
+volumeBindingMode: Immediate
+
+Statefulset.yaml
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: tomcat-sf
+  labels:
+    app: tomcat-sf
+spec:
+  ports:
+    - port: 8080
+      name: tomcat-sf
+  clusterIP: None
+  selector:
+    app: tomcat-sf
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: tomcat-sf
+spec:
+  selector:
+    matchLabels:
+      app: tomcat-sf # has to match .spec.template.metadata.labels
+  serviceName: "tomcat-sf"
+  replicas: 3
+  template: 
+      metadata: 
+        labels: 
+          app: tomcat-sf
+      spec: 
+        containers: 
+          - image: anilpu3/cicd-build-docker-repo:1.0
+            name: tomcat
+            volumeMounts:
+              - mountPath: "/usr/local/tomcat/webapps"
+                name: tomcat-sf
+			securityContext:
+              runAsUser: 0
+  volumeClaimTemplates:
+    - metadata:
+        name: tomcat-sf
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        storageClassName: "aws-ebs-gp2"
+        resources:
+          requests:
+            storage: 1Gi
