@@ -1,0 +1,1 @@
+# k8-static-and-dynamic-provisiong-
